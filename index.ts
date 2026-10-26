@@ -1,9 +1,13 @@
 import { ToolLoopAgent, stepCountIs, tool } from "ai"
 import { z } from "zod"
-import { google } from "@ai-sdk/google";
+import { groq } from "@ai-sdk/groq"
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
+
+interface BashOperations {
+  exec(command: string): Promise<{ stdout: string; exitCode: number }>;
+}
 
 const cwd = process.argv[2] || process.cwd();
 
@@ -111,8 +115,33 @@ function isSafe(command: string): boolean {
   return SAFE_PREFIXES.some((p) => command.trim().startsWith(p));
 }
 
-const bash = tool({
-  description: `Execute a shell command in the working directory.
+const localOps: BashOperations = {
+  exec: async (command) => {
+    try {
+      const stdout = execSync(command, {
+        cwd,
+        encoding: "utf-8",
+        timeout: 30_000,
+      });
+      return { stdout, exitCode: 0 };
+    } catch (e: any) {
+      return {
+        stdout: e.stdout || e.stderr || e.message || "",
+        exitCode: e.status ?? 1,
+      };
+    }
+  },
+};
+
+const bash = createBashTool(localOps, SAFE_PREFIXES);
+
+function createBashTool(operations: BashOperations, safePrefixes: string[]) {
+  function isSafe(command: string): boolean {
+    return safePrefixes.some((p) => command.trim().startsWith(p));
+  }
+
+  return tool({
+    description: `Execute a shell command in the working directory.
  
 WHEN TO USE: running build commands, installing packages, running tests,
   git operations, directory listings.
@@ -123,34 +152,22 @@ WHEN NOT TO USE: reading file contents (use read instead).
 DO NOT USE FOR: reading files (use read), searching code (use grep).
  
 USAGE: command is a single shell string. Commands not in the safe-prefix
-  allowlist are blocked and return a clear error message.
- 
-EXAMPLES:
-  - List files: command "ls -la"
-  - Check git status: command "git status"
-  - Run a test suite: command "npm test"`,
-  inputSchema: z.object({
-    command: z.string().describe("Shell command to execute"),
-  }),
-  execute: async ({ command }) => {
-    if (!isSafe(command)) {
-      return `Blocked: "${command}" requires approval. Only safe commands (${SAFE_PREFIXES.join(", ")}) run automatically.`;
-    }
-    try {
-      const stdout = execSync(command, {
-        cwd,
-        encoding: "utf-8",
-        timeout: 30_000,
-      });
+  allowlist are blocked and return a clear error message.`,
+    inputSchema: z.object({
+      command: z.string().describe("Shell command to execute"),
+    }),
+    execute: async ({ command }) => {
+      if (!isSafe(command)) {
+        return `Blocked: "${command}" requires approval.`;
+      }
+      const { stdout } = await operations.exec(command);
       return stdout || "(no output)";
-    } catch (e: any) {
-      return `Exit ${e.status ?? 1}: ${e.stdout || e.stderr || e.message || ""}`;
-    }
-  },
-});
+    },
+  });
+}
 
 const agent = new ToolLoopAgent({
-  model: google("gemini-3.5-flash-lite"),
+  model: groq("openai/gpt-oss-20b"),
   instructions: `You are a coding agent.\nWorking directory: ${cwd}`,
   tools: { read, grep, bash },
   stopWhen: stepCountIs(10),
