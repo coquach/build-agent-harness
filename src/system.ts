@@ -1,16 +1,16 @@
 
 export interface PromptContext {
-  workingDirectory: string;
-  sandboxType: string;
-  toolNames: string[];
-  gitBranch?: string;
-  projectContext?: string;
+    workingDirectory: string;
+    sandboxType: string;
+    toolNames: string[];
+    gitBranch?: string;
+    projectContext?: string;
 }
 
 export function buildSystemPrompt(ctx: PromptContext): string {
-  const sections: string[] = [];
+    const sections: string[] = [];
 
-  sections.push(`
+    sections.push(`
 You are an autonomous coding agent.
 
 # Environment
@@ -97,14 +97,24 @@ Example:
 - Do not install new dependencies without permission.
 - Do not modify unrelated files.
 - Never expose secrets, API keys, or environment variables.
-`);
 
-  if (ctx.projectContext) {
-    sections.push(`
+# Verification
+After making changes, verify your work:
+1. Run \`npx tsc --noEmit\` when TypeScript is present
+2. Run lint, test, or build commands only if they exist in this project and are allowed by the current approval mode
+3. Report exactly what you ran, what was blocked, and what was unavailable
+4. Do NOT inflate partial verification into a blanket success claim
+ 
+Do NOT claim "tests pass" without running them.
+Scope your claims honestly. "Verification was limited because writes were blocked" is honest.
+"All tests pass" when you didn't run them is not.`);
+
+    if (ctx.projectContext) {
+        sections.push(`
 # Project Instructions (from AGENTS.md)
 ${ctx.projectContext}
 `);
-  }
+    }
 
-  return sections.join("\n");
+    return sections.join("\n");
 }

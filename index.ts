@@ -1,7 +1,7 @@
 import { ToolLoopAgent, stepCountIs, tool } from "ai"
 import { z } from "zod"
 import { groq } from "@ai-sdk/groq"
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
 import { buildSystemPrompt } from "./src/system";
@@ -107,6 +107,52 @@ EXAMPLES:
   },
 });
 
+
+const edit = tool({
+  description: `Edit an existing file by replacing exact text.
+
+WHEN TO USE:
+- Renaming variables.
+- Fixing bugs.
+- Modifying existing source code.
+
+RULES:
+- Read the file before editing.
+- oldText must match exactly one occurrence.
+- Never overwrite unrelated changes.
+- Return an error if the target is missing or ambiguous.`,
+
+  inputSchema: z.object({
+    path: z.string(),
+    oldText: z.string(),
+    newText: z.string(),
+  }),
+
+  execute: async ({ path: filePath, oldText, newText }) => {
+    const abs = resolve(cwd, filePath);
+    const content = readFileSync(abs, "utf-8");
+
+    const matches = content.split(oldText).length - 1;
+
+    if (matches === 0) {
+      return "Edit failed: oldText not found.";
+    }
+
+    if (matches > 1) {
+      return `Edit failed: oldText found ${matches} times. Provide more context.`;
+    }
+
+    writeFileSync(
+      abs,
+      content.replace(oldText, newText),
+      "utf-8"
+    );
+
+    return `Successfully edited ${filePath}.`;
+  },
+});
+
+
 const SAFE_PREFIXES = [
   "ls", "cat", "echo", "pwd", "which", "find",
   "head", "tail", "wc", "git log", "git status", "git diff",
@@ -180,7 +226,7 @@ USAGE: command is a single shell string. Commands not approved by the
  
 const bash = createBashTool(localOps, createApproval({ mode: "interactive" }));
 
-const tools = { read, grep, bash };
+const tools = { read, grep, edit, bash };
 
 const agent = new ToolLoopAgent({
   model: groq("openai/gpt-oss-20b"),
