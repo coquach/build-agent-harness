@@ -1,8 +1,8 @@
 import { ToolLoopAgent, stepCountIs, tool } from "ai"
 import { z } from "zod"
 import { groq } from "@ai-sdk/groq"
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { buildSystemPrompt } from "./src/system";
 
@@ -228,12 +228,18 @@ const bash = createBashTool(localOps, createApproval({ mode: "interactive" }));
 
 const tools = { read, grep, edit, bash };
 
+const agentsPath = join(cwd, "AGENTS.md");
+const projectContext = existsSync(agentsPath)
+  ? readFileSync(agentsPath, "utf-8")
+  : undefined;
+
 const agent = new ToolLoopAgent({
   model: groq("openai/gpt-oss-20b"),
   instructions: buildSystemPrompt({
     workingDirectory: cwd,
     sandboxType: "local",
     toolNames: Object.keys(tools),
+    projectContext
   }),
   tools,
   stopWhen: stepCountIs(10),
