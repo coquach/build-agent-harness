@@ -4,6 +4,7 @@ import { groq } from "@ai-sdk/groq"
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
+import { buildSystemPrompt } from "./src/system";
 
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
@@ -179,21 +180,16 @@ USAGE: command is a single shell string. Commands not approved by the
  
 const bash = createBashTool(localOps, createApproval({ mode: "interactive" }));
 
+const tools = { read, grep, bash };
+
 const agent = new ToolLoopAgent({
   model: groq("openai/gpt-oss-20b"),
-  instructions: `You are a coding agent working in: ${cwd}
- 
-# Agency
-- USE your tools. Read files, search code, run commands, then answer.
-- Do NOT explain what you WOULD do. Actually do it.
-- Prefer grep for searching, read for viewing files.
-- Use bash only for commands that aren't covered by other tools.
- 
-# Guardrails
-- Prefer simple, minimal changes
-- Search before creating, and reuse existing patterns
-- No new dependencies without asking`,
-  tools: { read, grep, bash },
+  instructions: buildSystemPrompt({
+    workingDirectory: cwd,
+    sandboxType: "local",
+    toolNames: Object.keys(tools),
+  }),
+  tools,
   stopWhen: stepCountIs(10),
 });
 
