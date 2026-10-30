@@ -5,6 +5,8 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { buildSystemPrompt } from "./src/system";
+import { createLocalSandbox } from "./src/sanbox-local";
+import { createGrepTool, createReadTool } from "./src/tools";
 
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
@@ -226,7 +228,14 @@ USAGE: command is a single shell string. Commands not approved by the
  
 const bash = createBashTool(localOps, createApproval({ mode: "interactive" }));
 
-const tools = { read, grep, edit, bash };
+const sandbox = createLocalSandbox(cwd);
+console.error(`Sandbox: ${sandbox.type}`);
+ 
+const tools = {
+  read: createReadTool(sandbox),
+  grep: createGrepTool(sandbox),
+  bash: createBashTool(sandbox, createApproval({ mode: "interactive" })),
+};
 
 const agentsPath = join(cwd, "AGENTS.md");
 const projectContext = existsSync(agentsPath)
