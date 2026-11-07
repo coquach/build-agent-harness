@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import { buildSystemPrompt } from "./src/system";
 import { createLocalSandbox } from "./src/sanbox-local";
 import { createGrepTool, createReadTool } from "./src/tools";
+import { createJustBashSandbox } from "./src/sandbox-just-bash";
 
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
@@ -226,10 +227,15 @@ USAGE: command is a single shell string. Commands not approved by the
   });
 }
  
-const bash = createBashTool(localOps, createApproval({ mode: "interactive" }));
+const sandboxType = process.env.SANDBOX || "local";
+const sandbox =
+  sandboxType === "just-bash"
+    ? await createJustBashSandbox(cwd)
+    : createLocalSandbox(cwd);
 
-const sandbox = createLocalSandbox(cwd);
 console.error(`Sandbox: ${sandbox.type}`);
+
+const MAX_OUTPUT_TOKENS = 2_000;
  
 const tools = {
   read: createReadTool(sandbox),
@@ -251,7 +257,8 @@ const agent = new ToolLoopAgent({
     projectContext
   }),
   tools,
-  stopWhen: stepCountIs(10),
+  maxOutputTokens: MAX_OUTPUT_TOKENS,
+  stopWhen: stepCountIs(3),
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
