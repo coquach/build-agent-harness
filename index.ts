@@ -261,7 +261,11 @@ const agent = new ToolLoopAgent({
   }),
   tools,
   maxOutputTokens: MAX_OUTPUT_TOKENS,
-  stopWhen: stepCountIs(3),
+  stopWhen: stepCountIs(3), onStepEnd: ({ usage, stepNumber }) => {
+    console.error(
+      `Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output`,
+    );
+  },
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
