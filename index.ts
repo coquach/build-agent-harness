@@ -6,6 +6,7 @@ import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { buildSystemPrompt } from "./src/system";
 import { createLocalSandbox } from "./src/sanbox-local";
+import type { SandboxLifecycle } from "./src/sanbox";
 import { createGrepTool, createReadTool } from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 
@@ -234,6 +235,8 @@ const sandbox =
     : createLocalSandbox(cwd);
 
 console.error(`Sandbox: ${sandbox.type}`);
+const lifecycle: SandboxLifecycle = {};
+await lifecycle.afterStart?.(sandbox);
 
 const MAX_OUTPUT_TOKENS = 2_000;
  
@@ -262,6 +265,11 @@ const agent = new ToolLoopAgent({
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
-const { text, steps } = await agent.generate({ prompt });
-console.log(text);
-console.log(`\n(${steps.length} steps)`);
+try {
+  const { text, steps } = await agent.generate({ prompt });
+  console.log(text);
+  console.log(`\n(${steps.length} steps)`);
+} finally {
+  await lifecycle.beforeStop?.(sandbox);
+  await sandbox.stop();
+}

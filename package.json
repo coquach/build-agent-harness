@@ -17,6 +17,7 @@
   "dependencies": {
     "@ai-sdk/google": "^4.0.105",
     "@ai-sdk/groq": "^4.0.70",
+    "@vercel/sandbox": "^3.9.1",
     "ai": "^7.0.153",
     "just-bash": "^3.6.0",
     "zod": "^3"
