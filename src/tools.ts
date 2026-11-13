@@ -96,26 +96,27 @@ Returns matching lines with file names and line numbers.`,
 
 export function createBashTool(
   sandbox: Sandbox,
-  needsApproval: (input: { command: string }) => boolean,
+  requiresApproval: (input: { command: string }) => boolean,
 ) {
+  const MAX_BASH_CHARS = 5000;
   return tool({
-    description: `Execute a shell command in the project directory.
-WHEN TO USE: running tests, checking git status, installing dependencies when approved, and project verification.
-WHEN NOT TO USE: reading files (use read) or searching text (use grep).
-Commands requiring approval must not be executed without approval.`,
+    description: `Execute a shell command in the working directory.
+WHEN TO USE: build commands, package install, tests, git, directory listings.
+WHEN NOT TO USE: reading file contents (use read).
+DO NOT USE FOR: reading files (use read), searching code (use grep).`,
     inputSchema: z.object({
-      command: z.string(),
+      command: z.string().describe("Shell command to execute"),
     }),
     execute: async ({ command }) => {
-      if (needsApproval({ command })) {
+      if (requiresApproval({ command })) {
         return `Blocked: "${command}" requires approval.`;
       }
-
-      const { stdout, exitCode } = await sandbox.exec(command);
-
-      return truncateOutput(
-        stdout || `(no output, exit code: ${exitCode})`
-      );
+      const result = await sandbox.exec(command);
+      const stdout = result.stdout || "(no output)";
+      return stdout.length > MAX_BASH_CHARS
+        ? stdout.slice(-MAX_BASH_CHARS) +
+        `\n... (truncated, showing last ${MAX_BASH_CHARS} chars)`
+        : stdout;
     },
   });
 }
