@@ -1,4 +1,4 @@
-import { ToolLoopAgent, stepCountIs, tool } from "ai"
+import { ToolLoopAgent, stepCountIs, tool, pruneMessages } from "ai"; 
 import { z } from "zod"
 import { groq } from "@ai-sdk/groq"
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -185,19 +185,19 @@ type ApprovalConfig =
   | { mode: "interactive" }
   | { mode: "background" }
   | { mode: "delegated"; trust: string[] };
- 
+
 function createApproval(config: ApprovalConfig) {
   return ({ command }: { command: string }) => {
     if (config.mode === "background") return false;
- 
+
     if (config.mode === "delegated") {
       return !config.trust.some((p) => command.trim().startsWith(p));
     }
- 
+
     return !SAFE_PREFIXES.some((p) => command.trim().startsWith(p));
   };
 }
- 
+
 function createBashTool(
   operations: BashOperations,
   needsApproval: (input: { command: string }) => boolean,
@@ -227,7 +227,7 @@ USAGE: command is a single shell string. Commands not approved by the
     },
   });
 }
- 
+
 const sandboxType = process.env.SANDBOX || "local";
 const sandbox =
   sandboxType === "just-bash"
@@ -239,7 +239,7 @@ const lifecycle: SandboxLifecycle = {};
 await lifecycle.afterStart?.(sandbox);
 
 const MAX_OUTPUT_TOKENS = 2_000;
- 
+
 const tools = {
   read: createReadTool(sandbox),
   grep: createGrepTool(sandbox),
@@ -261,7 +261,11 @@ const agent = new ToolLoopAgent({
   }),
   tools,
   maxOutputTokens: MAX_OUTPUT_TOKENS,
-  stopWhen: stepCountIs(3), onStepEnd: ({ usage, stepNumber }) => {
+  prepareStep: ({ messages }) => ({
+    messages: pruneMessages({ messages, toolCalls: "before-last-3-messages" }),
+  }),
+  stopWhen: stepCountIs(5),
+  onStepEnd: ({ usage, stepNumber }) => {
     console.error(
       `Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output`,
     );
