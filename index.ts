@@ -9,6 +9,7 @@ import { createLocalSandbox } from "./src/sanbox-local";
 import type { SandboxLifecycle } from "./src/sanbox";
 import { createGrepTool, createReadTool } from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
+import { addCacheControl } from "./src/cache";
 
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
@@ -261,15 +262,17 @@ const agent = new ToolLoopAgent({
   }),
   tools,
   maxOutputTokens: MAX_OUTPUT_TOKENS,
-  prepareStep: ({ messages }) => ({
-    messages: pruneMessages({ messages, toolCalls: "before-last-3-messages" }),
-  }),
   stopWhen: stepCountIs(5),
   onStepEnd: ({ usage, stepNumber }) => {
     console.error(
       `Step ${stepNumber}: ${usage.inputTokens} input, ${usage.outputTokens} output`,
     );
   },
+  prepareStep: ({ messages }) => ({
+  messages: addCacheControl(
+    pruneMessages({ messages, toolCalls: "before-last-3-messages" }),
+  ),
+}),
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
