@@ -111,65 +111,78 @@ DO NOT USE FOR: reading files (use read), searching code (use grep).`,
   });
 }
  
+type TaskParentTools = { read: any; grep: any; executorBash: any };
+
+function buildExplorer(sandbox: Sandbox, parentTools: TaskParentTools) {
+  return new ToolLoopAgent({
+    model: groq("openai/gpt-oss-20b"),
+    instructions: `You are an explorer agent. Investigate and report back concisely.
+Working directory: ${sandbox.workingDirectory}`,
+    tools: { read: parentTools.read, grep: parentTools.grep },
+    stopWhen: stepCountIs(5),
+  });
+}
+
+function buildExecutor(sandbox: Sandbox, parentTools: TaskParentTools) {
+  return new ToolLoopAgent({
+    model: groq("openai/gpt-oss-120b"),
+    instructions: `You are an executor agent. Follow instructions precisely.
+Working directory: ${sandbox.workingDirectory}
+Use the available tools to implement the requested changes and verify them.
+Do not ask questions; report blockers clearly instead.`,
+    tools: {
+      read: parentTools.read,
+      grep: parentTools.grep,
+      bash: parentTools.executorBash,
+    },
+    stopWhen: stepCountIs(15),
+  });
+}
+
+async function runSubagent(
+  role: "explorer" | "executor",
+  agent: ToolLoopAgent<never, any, any, any>,
+  description: string,
+) {
+  const label = role === "explorer" ? "Explorer" : "Executor";
+
+  try {
+    const { text, steps } = await agent.generate({ prompt: description });
+    return text
+      ? `[${label}: ${steps.length} steps]\n${text}`
+      : `(no response from ${role})`;
+  } catch (e: any) {
+    return `${label} error: ${e.message}`;
+  }
+}
+
 export function createTaskTool(
   sandbox: Sandbox,
-  parentTools: { read: any; grep: any; executorBash: any },
+  parentTools: TaskParentTools,
 ) {
   return tool({
     description: `Delegate work to a subagent.
-WHEN TO USE: investigating a codebase, finding patterns, gathering context.
-Explorer: read-only research with a fast model.
-Executor: implementation with delegated Bash access and a larger step budget.
-WHEN NOT TO USE: tasks that need decisions or askUser interactions.`,
+Explorer (default): read-only research with a fast Groq model. Use for searching
+across files, understanding patterns, and gathering context.
+Executor: implementation with a stronger Groq model and delegated Bash. Use for
+focused changes with explicit instructions and a known verification step.
+
+WHEN TO USE: research across many files (explorer), focused implementation (executor).
+WHEN NOT TO USE: ambiguous requirements (use askUser), architectural decisions
+(the parent decides), or single-step tasks the parent can do directly.`,
     inputSchema: z.object({
-      description: z.string().describe("What the subagent should investigate"),
+      description: z.string().describe("Task instructions for the subagent"),
       subagentType: z
         .enum(["explorer", "executor"])
         .default("explorer")
         .describe("Subagent role"),
     }),
     execute: async ({ description, subagentType }) => {
-      if (subagentType === "executor") {
-        const executor = new ToolLoopAgent({
-          model: groq("openai/gpt-oss-120b"),
-          instructions: `You are an executor agent. Follow instructions precisely.
-Working directory: ${sandbox.workingDirectory}
-Use the available tools to implement the requested changes and verify them.
-Do not ask questions; report blockers clearly instead.`,
-          tools: {
-            read: parentTools.read,
-            grep: parentTools.grep,
-            bash: parentTools.executorBash,
-          },
-          stopWhen: stepCountIs(15),
-        });
-
-        try {
-          const { text, steps } = await executor.generate({ prompt: description });
-          return text
-            ? `[Executor: ${steps.length} steps]\n${text}`
-            : "(no response from executor)";
-        } catch (e: any) {
-          return `Executor error: ${e.message}`;
-        }
-      }
-
-      const explorer = new ToolLoopAgent({
-        model: groq("openai/gpt-oss-20b"),
-        instructions: `You are an explorer agent. Investigate and report back concisely.
-Working directory: ${sandbox.workingDirectory}`,
-        tools: { read: parentTools.read, grep: parentTools.grep },
-        stopWhen: stepCountIs(5),
-      });
- 
-      try {
-        const { text, steps } = await explorer.generate({ prompt: description });
-        return text
-          ? `[Explorer: ${steps.length} steps]\n${text}`
-          : "(no response from subagent)";
-      } catch (e: any) {
-        return `Subagent error: ${e.message}`;
-      }
+      const agent =
+        subagentType === "executor"
+          ? buildExecutor(sandbox, parentTools)
+          : buildExplorer(sandbox, parentTools);
+      return runSubagent(subagentType, agent, description);
     },
   });
 }
