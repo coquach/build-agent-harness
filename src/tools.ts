@@ -53,25 +53,14 @@ Returns matching lines with file names and line numbers.`,
       path: z.string().optional(),
       glob: z.string().optional(),
     }),
-    execute: async ({ pattern, path = ".", glob }) => {
+    execute: async ({ pattern, path, glob }) => {
       // Escape shell arguments to prevent shell injection.
       const quote = (value: string) =>
         `'${value.replace(/'/g, "'\\''")}'`;
 
-      const args = [
-        "-rn",
-        "--color=never",
-        "--",
-        quote(pattern),
-        quote(path),
-      ];
-
-      // GNU grep supports --include. Keep the glob as one argument.
-      const command = [
-        "grep",
-        ...args,
-        ...(glob ? ["--include", quote(glob)] : []),
-      ].join(" ");
+      const searchPath = path || ".";
+      const globFilter = glob ? `-name ${quote(glob)}` : "";
+      const command = `find ${quote(searchPath)} -type f ${globFilter} -exec grep -nH -- ${quote(pattern)} {} +`;
 
       const { stdout, exitCode } = await sandbox.exec(command);
 
@@ -124,17 +113,47 @@ DO NOT USE FOR: reading files (use read), searching code (use grep).`,
  
 export function createTaskTool(
   sandbox: Sandbox,
-  parentTools: { read: any; grep: any },
+  parentTools: { read: any; grep: any; executorBash: any },
 ) {
   return tool({
-    description: `Delegate research to a read-only subagent.
+    description: `Delegate work to a subagent.
 WHEN TO USE: investigating a codebase, finding patterns, gathering context.
-WHEN NOT TO USE: making changes (the subagent cannot write or run commands).
-DO NOT USE FOR: tasks that need decisions or askUser interactions.`,
+Explorer: read-only research with a fast model.
+Executor: implementation with delegated Bash access and a larger step budget.
+WHEN NOT TO USE: tasks that need decisions or askUser interactions.`,
     inputSchema: z.object({
       description: z.string().describe("What the subagent should investigate"),
+      subagentType: z
+        .enum(["explorer", "executor"])
+        .default("explorer")
+        .describe("Subagent role"),
     }),
-    execute: async ({ description }) => {
+    execute: async ({ description, subagentType }) => {
+      if (subagentType === "executor") {
+        const executor = new ToolLoopAgent({
+          model: groq("openai/gpt-oss-120b"),
+          instructions: `You are an executor agent. Follow instructions precisely.
+Working directory: ${sandbox.workingDirectory}
+Use the available tools to implement the requested changes and verify them.
+Do not ask questions; report blockers clearly instead.`,
+          tools: {
+            read: parentTools.read,
+            grep: parentTools.grep,
+            bash: parentTools.executorBash,
+          },
+          stopWhen: stepCountIs(15),
+        });
+
+        try {
+          const { text, steps } = await executor.generate({ prompt: description });
+          return text
+            ? `[Executor: ${steps.length} steps]\n${text}`
+            : "(no response from executor)";
+        } catch (e: any) {
+          return `Executor error: ${e.message}`;
+        }
+      }
+
       const explorer = new ToolLoopAgent({
         model: groq("openai/gpt-oss-20b"),
         instructions: `You are an explorer agent. Investigate and report back concisely.

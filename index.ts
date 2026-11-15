@@ -7,7 +7,12 @@ import { execSync } from "node:child_process";
 import { buildSystemPrompt } from "./src/system";
 import { createLocalSandbox } from "./src/sanbox-local";
 import type { SandboxLifecycle } from "./src/sanbox";
-import { createGrepTool, createReadTool, createTaskTool } from "./src/tools";
+import {
+  createBashTool as createSandboxBashTool,
+  createGrepTool,
+  createReadTool,
+  createTaskTool,
+} from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { addCacheControl } from "./src/cache";
 
@@ -254,7 +259,17 @@ const projectContext = existsSync(agentsPath)
 
 const tools_with_task = {
   ...tools,
-  task: createTaskTool(sandbox, { read: tools.read, grep: tools.grep }),
+  task: createTaskTool(sandbox, {
+    read: tools.read,
+    grep: tools.grep,
+    executorBash: createSandboxBashTool(
+      sandbox,
+      createApproval({
+        mode: "delegated",
+        trust: ["bun test", "bun run build", "bun check"],
+      }),
+    ),
+  }),
 };
 
 const agent = new ToolLoopAgent({
