@@ -1,4 +1,4 @@
-import { ToolLoopAgent, stepCountIs, tool, pruneMessages } from "ai"; 
+import { ToolLoopAgent, stepCountIs, tool, pruneMessages } from "ai";
 import { z } from "zod"
 import { groq } from "@ai-sdk/groq"
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -7,7 +7,7 @@ import { execSync } from "node:child_process";
 import { buildSystemPrompt } from "./src/system";
 import { createLocalSandbox } from "./src/sanbox-local";
 import type { SandboxLifecycle } from "./src/sanbox";
-import { createGrepTool, createReadTool } from "./src/tools";
+import { createGrepTool, createReadTool, createTaskTool } from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { addCacheControl } from "./src/cache";
 
@@ -252,6 +252,11 @@ const projectContext = existsSync(agentsPath)
   ? readFileSync(agentsPath, "utf-8")
   : undefined;
 
+const tools_with_task = {
+  ...tools,
+  task: createTaskTool(sandbox, { read: tools.read, grep: tools.grep }),
+};
+
 const agent = new ToolLoopAgent({
   model: groq("openai/gpt-oss-20b"),
   instructions: buildSystemPrompt({
@@ -260,7 +265,7 @@ const agent = new ToolLoopAgent({
     toolNames: Object.keys(tools),
     projectContext
   }),
-  tools,
+  tools: tools_with_task,
   maxOutputTokens: MAX_OUTPUT_TOKENS,
   stopWhen: stepCountIs(5),
   onStepEnd: ({ usage, stepNumber }) => {
@@ -269,10 +274,10 @@ const agent = new ToolLoopAgent({
     );
   },
   prepareStep: ({ messages }) => ({
-  messages: addCacheControl(
-    pruneMessages({ messages, toolCalls: "before-last-3-messages" }),
-  ),
-}),
+    messages: addCacheControl(
+      pruneMessages({ messages, toolCalls: "before-last-3-messages" }),
+    ),
+  }),
 });
 
 const prompt = process.argv.slice(3).join(" ") || "Hello!";
