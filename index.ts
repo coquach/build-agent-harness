@@ -4,9 +4,10 @@ import { groq } from "@ai-sdk/groq"
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
+import { parseArgs } from "node:util";
 import { buildSystemPrompt } from "./src/system";
 import { createLocalSandbox } from "./src/sanbox-local";
-import type { SandboxLifecycle } from "./src/sanbox";
+import type { Sandbox, SandboxLifecycle } from "./src/sanbox";
 import {
   createBashTool as createSandboxBashTool,
   createGrepTool,
@@ -23,7 +24,17 @@ interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
 }
 
-const cwd = process.argv[2] || process.cwd();
+const { values, positionals } = parseArgs({
+  args: process.argv.slice(2),
+  options: {
+    sandbox: { type: "string", default: "local" },
+    model: { type: "string", default: "openai/gpt-oss-20b" },
+  },
+  allowPositionals: true,
+});
+
+const cwd = resolve(positionals[0] || process.cwd());
+const prompt = positionals.slice(1).join(" ") || "Hello!";
 
 const read = tool({
   description: `Read a file from the project. Returns numbered lines.
@@ -237,11 +248,17 @@ USAGE: command is a single shell string. Commands not approved by the
   });
 }
 
-const sandboxType = process.env.SANDBOX || "local";
-const sandbox =
-  sandboxType === "just-bash"
-    ? await createJustBashSandbox(cwd)
-    : createLocalSandbox(cwd);
+async function sandboxFromFlag(name: string, dir: string): Promise<Sandbox> {
+  if (name === "local") {
+    return createLocalSandbox(dir);
+  }
+  if (name === "just-bash") {
+    return createJustBashSandbox(dir);
+  }
+  throw new Error(`Unknown sandbox "${name}". Use "local" or "just-bash".`);
+}
+
+const sandbox = await sandboxFromFlag(values.sandbox ?? "local", cwd);
 
 console.error(`Sandbox: ${sandbox.type}`);
 const lifecycle: SandboxLifecycle = {};
@@ -279,10 +296,10 @@ const tools_with_task = {
 };
 
 const agent = new ToolLoopAgent({
-  model: groq("openai/gpt-oss-20b"),
-  providerOptions: {
-    groq: { reasoningEffort: "low" },
-  },
+  model: groq(values.model ?? "openai/gpt-oss-20b"),
+  ...(values.model?.startsWith("openai/gpt-oss")
+    ? { providerOptions: { groq: { reasoningEffort: "low" } } }
+    : {}),
   instructions: buildSystemPrompt({
     workingDirectory: cwd,
     sandboxType: sandbox.type,
@@ -305,7 +322,12 @@ const agent = new ToolLoopAgent({
   }),
 });
 
-const prompt = process.argv.slice(3).join(" ") || "Hello!";
+process.on("SIGINT", async () => {
+  console.error("\nShutting down...");
+  await sandbox.stop();
+  process.exit(0);
+});
+
 try {
   const { text, steps } = await agent.generate({ prompt });
   console.log(text);
