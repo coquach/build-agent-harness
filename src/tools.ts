@@ -1,8 +1,10 @@
 
 import { stepCountIs, tool, ToolLoopAgent } from "ai";
 import z from "zod";
+import { readFileSync } from "node:fs";
 import type { Sandbox } from "./sanbox";
 import { groq } from "@ai-sdk/groq";
+import type { Skill } from "./skills";
 
 const MAX_OUTPUT_CHARS = 12_000;
 const MAX_LINES = 500;
@@ -89,6 +91,33 @@ DO NOT USE FOR: status updates to the user (just answer them directly).`,
           .map((item) => `[${item.state}] ${item.id}: ${item.description}`)
           .join("\n") || "No todos."
       );
+    },
+  });
+}
+
+export function createLoadSkillTool(skills: Skill[]) {
+  const MAX_SKILL_CHARS = 4_000;
+  const byName = new Map(skills.map((skill) => [skill.name, skill]));
+
+  return tool({
+    description: `Load the full content of a skill.
+WHEN TO USE: the task touches a domain covered by an available skill.
+WHEN NOT TO USE: tasks unrelated to the listed skills.
+DO NOT USE FOR: names not listed in the Skills section.`,
+    inputSchema: z.object({
+      name: z.string().describe("Skill name as listed in the Skills section"),
+    }),
+    execute: async ({ name }) => {
+      const skill = byName.get(name);
+      if (!skill) {
+        return `Unknown skill: ${name}`;
+      }
+
+      const content = readFileSync(skill.path, "utf-8");
+      return content.length > MAX_SKILL_CHARS
+        ? content.slice(0, MAX_SKILL_CHARS) +
+            `\n... (truncated at ${MAX_SKILL_CHARS} chars)`
+        : content;
     },
   });
 }

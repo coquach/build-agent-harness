@@ -15,10 +15,12 @@ import {
   createTaskTool,
   createAskUserTool,
   createTodoTool,
+  createLoadSkillTool,
 } from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { addCacheControl } from "./src/cache";
 import { discoverGates } from "./src/verification";
+import { discoverSkills } from "./src/skills";
 
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
@@ -264,6 +266,10 @@ console.error(`Sandbox: ${sandbox.type}`);
 const lifecycle: SandboxLifecycle = {};
 await lifecycle.afterStart?.(sandbox);
 const verificationCommands = await discoverGates(sandbox);
+const skills = discoverSkills([
+  join(cwd, "skills"),
+  join(process.env.HOME ?? "", ".harness", "skills"),
+]);
 
 const MAX_OUTPUT_TOKENS = 2_000;
 
@@ -293,6 +299,7 @@ const tools_with_task = {
   }),
   askUser: createAskUserTool(),
   todo: createTodoTool(),
+  loadSkill: createLoadSkillTool(skills),
 };
 
 const agent = new ToolLoopAgent({
@@ -306,6 +313,7 @@ const agent = new ToolLoopAgent({
     toolNames: Object.keys(tools_with_task),
     projectContext,
     verificationCommands,
+    skills: skills.map(({ name, description }) => ({ name, description })),
   }),
   tools: tools_with_task,
   maxOutputTokens: MAX_OUTPUT_TOKENS,

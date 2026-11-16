@@ -6,6 +6,7 @@ export interface PromptContext {
     gitBranch?: string;
     projectContext?: string;
     verificationCommands?: string[];
+    skills?: { name: string; description: string }[];
 }
 
 export function buildSystemPrompt(ctx: PromptContext): string {
@@ -120,6 +121,16 @@ verification into a blanket success claim.`);
 # Project Instructions (from AGENTS.md)
 ${ctx.projectContext}
 `);
+    }
+
+    if (ctx.skills?.length) {
+        const lines = ctx.skills
+            .map((skill) => `- ${skill.name}: ${skill.description}`)
+            .join("\n");
+        sections.push(`
+# Skills
+The following skills are available. Call \`loadSkill\` with the name to get full content.
+${lines}`);
     }
 
     sections.push(`
