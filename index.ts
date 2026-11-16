@@ -17,6 +17,7 @@ import {
 } from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { addCacheControl } from "./src/cache";
+import { discoverGates } from "./src/verification";
 
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
@@ -245,6 +246,7 @@ const sandbox =
 console.error(`Sandbox: ${sandbox.type}`);
 const lifecycle: SandboxLifecycle = {};
 await lifecycle.afterStart?.(sandbox);
+const verificationCommands = await discoverGates(sandbox);
 
 const MAX_OUTPUT_TOKENS = 2_000;
 
@@ -283,9 +285,10 @@ const agent = new ToolLoopAgent({
   },
   instructions: buildSystemPrompt({
     workingDirectory: cwd,
-    sandboxType: "local",
+    sandboxType: sandbox.type,
     toolNames: Object.keys(tools_with_task),
-    projectContext
+    projectContext,
+    verificationCommands,
   }),
   tools: tools_with_task,
   maxOutputTokens: MAX_OUTPUT_TOKENS,
