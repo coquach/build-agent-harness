@@ -12,6 +12,7 @@ import {
   createGrepTool,
   createReadTool,
   createTaskTool,
+  createAskUserTool,
 } from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { addCacheControl } from "./src/cache";
@@ -270,6 +271,7 @@ const tools_with_task = {
       }),
     ),
   }),
+  askUser: createAskUserTool(),
 };
 
 const agent = new ToolLoopAgent({
@@ -277,7 +279,7 @@ const agent = new ToolLoopAgent({
   instructions: buildSystemPrompt({
     workingDirectory: cwd,
     sandboxType: "local",
-    toolNames: Object.keys(tools),
+    toolNames: Object.keys(tools_with_task),
     projectContext
   }),
   tools: tools_with_task,

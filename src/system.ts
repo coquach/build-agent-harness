@@ -116,5 +116,19 @@ ${ctx.projectContext}
 `);
     }
 
+    sections.push(`
+# Handling Ambiguity
+When the task is ambiguous or has multiple valid approaches:
+1. Search the code or docs to gather context first
+2. Use askUser to let the user choose. Do NOT guess.
+3. Act only after the user has provided the missing direction.
+
+Examples: "add auth" -> ask OAuth, JWT, or session cookies;
+"set up a database" -> ask Postgres or SQLite.
+
+Specific tasks with file paths, line numbers, or precise instructions do not
+need askUser. Act directly.
+`);
+
     return sections.join("\n");
 }
