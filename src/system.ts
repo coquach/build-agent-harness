@@ -23,6 +23,8 @@ ${ctx.gitBranch ? `- Git branch: ${ctx.gitBranch}` : ""}
 You MUST use available tools to perform tasks.
 Do not merely describe what you would do.
 Inspect the project before making assumptions.
+Search before reading. Use grep first, then read only what you'll change.
+Don't read files "just in case." Read what you need when you need it.
 
 # Tool Selection Rules
 
