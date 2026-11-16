@@ -8,19 +8,11 @@ import { parseArgs } from "node:util";
 import { buildSystemPrompt } from "./src/system";
 import { createLocalSandbox } from "./src/sanbox-local";
 import type { Sandbox, SandboxLifecycle } from "./src/sanbox";
-import {
-  createBashTool as createSandboxBashTool,
-  createGrepTool,
-  createReadTool,
-  createTaskTool,
-  createAskUserTool,
-  createTodoTool,
-  createLoadSkillTool,
-} from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { addCacheControl } from "./src/cache";
 import { discoverGates } from "./src/verification";
 import { discoverSkills } from "./src/skills";
+import { createRegistry, registerBuiltins } from "./src/registry";
 
 interface BashOperations {
   exec(command: string): Promise<{ stdout: string; exitCode: number }>;
@@ -273,34 +265,47 @@ const skills = discoverSkills([
 
 const MAX_OUTPUT_TOKENS = 2_000;
 
-const tools = {
-  read: createReadTool(sandbox),
-  grep: createGrepTool(sandbox),
-  bash: createBashTool(sandbox, createApproval({ mode: "interactive" })),
-};
-
 const agentsPath = join(cwd, "AGENTS.md");
 const projectContext = existsSync(agentsPath)
   ? readFileSync(agentsPath, "utf-8")
   : undefined;
 
-const tools_with_task = {
-  ...tools,
-  task: createTaskTool(sandbox, {
-    read: tools.read,
-    grep: tools.grep,
-    executorBash: createSandboxBashTool(
-      sandbox,
-      createApproval({
-        mode: "delegated",
-        trust: ["bun test", "bun run build", "bun check"],
-      }),
-    ),
+const registry = createRegistry();
+registerBuiltins(registry, sandbox, skills, {
+  requiresApproval: createApproval({ mode: "interactive" }),
+  executorRequiresApproval: createApproval({
+    mode: "delegated",
+    trust: ["bun test", "bun run build", "bun check"],
   }),
-  askUser: createAskUserTool(),
-  todo: createTodoTool(),
-  loadSkill: createLoadSkillTool(skills),
-};
+});
+
+registry.register(
+  "deploy",
+  tool({
+    description: `Deploy the project to a target environment.
+WHEN TO USE: pushing changes to staging or production.
+WHEN NOT TO USE: testing changes (use bash with the test runner instead).`,
+    inputSchema: z.object({
+      environment: z.enum(["staging", "production"]),
+    }),
+    execute: async ({ environment }) => {
+      const command = `vercel deploy${environment === "production" ? " --prod" : ""}`;
+      if (createApproval({ mode: "interactive" })({ command })) {
+        return `Blocked: "${command}" requires approval.`;
+      }
+      const result = await sandbox.exec(command);
+      return result.stdout || "(no output)";
+    },
+  }),
+);
+
+registry.register("now", tool({
+  description: "Return the current timestamp",
+  inputSchema: z.object({}),
+  execute: async () => new Date().toISOString(),
+}));
+
+const tools = Object.fromEntries(registry.entries());
 
 const agent = new ToolLoopAgent({
   model: groq(values.model ?? "openai/gpt-oss-20b"),
@@ -310,12 +315,12 @@ const agent = new ToolLoopAgent({
   instructions: buildSystemPrompt({
     workingDirectory: cwd,
     sandboxType: sandbox.type,
-    toolNames: Object.keys(tools_with_task),
+    toolNames: registry.list(),
     projectContext,
     verificationCommands,
     skills: skills.map(({ name, description }) => ({ name, description })),
   }),
-  tools: tools_with_task,
+  tools,
   maxOutputTokens: MAX_OUTPUT_TOKENS,
   stopWhen: stepCountIs(5),
   onStepEnd: ({ usage, stepNumber }) => {
