@@ -13,6 +13,7 @@ import {
   createReadTool,
   createTaskTool,
   createAskUserTool,
+  createTodoTool,
 } from "./src/tools";
 import { createJustBashSandbox } from "./src/sandbox-just-bash";
 import { addCacheControl } from "./src/cache";
@@ -272,10 +273,14 @@ const tools_with_task = {
     ),
   }),
   askUser: createAskUserTool(),
+  todo: createTodoTool(),
 };
 
 const agent = new ToolLoopAgent({
   model: groq("openai/gpt-oss-20b"),
+  providerOptions: {
+    groq: { reasoningEffort: "low" },
+  },
   instructions: buildSystemPrompt({
     workingDirectory: cwd,
     sandboxType: "local",

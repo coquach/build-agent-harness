@@ -7,6 +7,14 @@ import { groq } from "@ai-sdk/groq";
 const MAX_OUTPUT_CHARS = 12_000;
 const MAX_LINES = 500;
 
+interface TodoItem {
+  id: string;
+  description: string;
+  state: "pending" | "in_progress" | "completed";
+}
+
+const todos: TodoItem[] = [];
+
 export function createAskUserTool() {
   return tool({
     description: `Ask the user a multiple-choice question.
@@ -26,6 +34,61 @@ DO NOT USE FOR: rhetorical questions or progress updates.`,
       const formatted = options.map((option, index) => `${index + 1}. ${option}`).join("\n");
       console.log(`\nQuestion: ${question}\n${formatted}\n`);
       return `Asked: "${question}"\nOptions:\n${formatted}\n\n(Awaiting user response.)`;
+    },
+  });
+}
+
+export function createTodoTool() {
+  return tool({
+    description: `Manage a task list for multi-step work.
+WHEN TO USE: tasks with 3+ steps, multiple files, or dependencies between
+  changes. Plan once, then track progress as you go.
+WHEN NOT TO USE: single-file fixes, simple questions, exploratory reads.
+DO NOT USE FOR: status updates to the user (just answer them directly).`,
+    inputSchema: z.object({
+      action: z.enum(["add", "start", "complete", "list"]),
+      description: z.string().optional(),
+      id: z.string().optional(),
+    }),
+    execute: async ({ action, description, id }) => {
+      if (action === "add") {
+        const item: TodoItem = {
+          id: crypto.randomUUID().slice(0, 8),
+          description: description ?? "(unnamed)",
+          state: "pending",
+        };
+        todos.push(item);
+        return `Added: [${item.id}] ${item.description}`;
+      }
+
+      if (action === "start") {
+        const active = todos.find((item) => item.state === "in_progress");
+        if (active) {
+          return `Already working on: [${active.id}] ${active.description}. Complete it first.`;
+        }
+
+        const next = todos.find((item) => item.id === id);
+        if (next) {
+          next.state = "in_progress";
+          return `Started: [${next.id}] ${next.description}`;
+        }
+        return `No todo with id ${id}.`;
+      }
+
+      if (action === "complete") {
+        const item = todos.find((todo) => todo.id === id);
+        if (item) {
+          item.state = "completed";
+          return `Completed: [${item.id}] ${item.description}`;
+        }
+        return `No todo with id ${id}.`;
+      }
+
+      return (
+        todos
+          .map((item) => `[${item.state}] ${item.id}: ${item.description}`)
+          .join("\n") || "No todos."
+      );
     },
   });
 }
@@ -139,6 +202,9 @@ type TaskParentTools = { read: any; grep: any; executorBash: any };
 function buildExplorer(sandbox: Sandbox, parentTools: TaskParentTools) {
   return new ToolLoopAgent({
     model: groq("openai/gpt-oss-20b"),
+    providerOptions: {
+      groq: { reasoningEffort: "low" },
+    },
     instructions: `You are an explorer agent. Investigate and report back concisely.
 Working directory: ${sandbox.workingDirectory}`,
     tools: { read: parentTools.read, grep: parentTools.grep },
@@ -149,6 +215,9 @@ Working directory: ${sandbox.workingDirectory}`,
 function buildExecutor(sandbox: Sandbox, parentTools: TaskParentTools) {
   return new ToolLoopAgent({
     model: groq("openai/gpt-oss-120b"),
+    providerOptions: {
+      groq: { reasoningEffort: "low" },
+    },
     instructions: `You are an executor agent. Follow instructions precisely.
 Working directory: ${sandbox.workingDirectory}
 Use the available tools to implement the requested changes and verify them.
